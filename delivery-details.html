@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>納品明細</title>
+  <!-- WOFF SDK -->
+  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f9f9f9; }
+    #detailArea { display: none; }
+    #error { color: red; display: none; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th,td { border: 1px solid #ccc; padding: 8px; }
+    th { background: #f0f0f0; }
+    #closeBtn { margin-top: 20px; padding: 8px 12px; }
+  </style>
+</head>
+<body>
+
+  <h1>納品明細</h1>
+  <div id="error"></div>
+
+  <div id="detailArea">
+    <p>
+      閲覧者: <span id="viewerName"></span>（ID: <span id="viewerId"></span>）
+    </p>
+    <p><strong>納品ID:</strong> <span id="deliveryId">—</span></p>
+    <p><strong>納品先:</strong> <span id="client">—</span></p>
+    <p><strong>納品日:</strong> <span id="date">—</span></p>
+
+    <table>
+      <thead>
+        <tr><th>品名</th><th>数量</th></tr>
+      </thead>
+      <tbody id="itemTable"></tbody>
+    </table>
+
+    <button id="closeBtn">閉じる</button>
+  </div>
+
+  <script>
+    function base64ToUtf8(str) {
+      return decodeURIComponent(escape(atob(str)));
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      if (!woff.isInClient()) {
+        showError("LINE WORKSアプリ内で開いてください。");
+        return;
+      }
+
+      woff.init({ woffId: "<YOUR_WOFF_ID>" })
+        .then(() => woff.getProfile())
+        .then(profile => {
+          document.getElementById("viewerName").textContent = profile.displayName;
+          document.getElementById("viewerId").textContent   = profile.userId;
+          document.getElementById("detailArea").style.display = "block";
+          renderDetails();
+        })
+        .catch(err => {
+          showError("初期化エラー: " + err.message);
+        });
+    });
+
+    function renderDetails() {
+      const params = new URLSearchParams(location.search);
+      const raw    = params.get("data");
+      if (!raw) {
+        return showError("データが渡されていません。");
+      }
+
+      let payload;
+      try {
+        payload = JSON.parse(base64ToUtf8(raw));
+      } catch {
+        return showError("データの解析に失敗しました。");
+      }
+
+      document.getElementById("deliveryId").textContent = payload.deliveryId || "未指定";
+      document.getElementById("client").textContent     = payload.client     || "未指定";
+      document.getElementById("date").textContent       = payload.date       || "—";
+
+      const tbody = document.getElementById("itemTable");
+      payload.items.forEach(item => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${item.name}</td><td>${item.qty}</td>`;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById("closeBtn")
+        .addEventListener("click", () => woff.closeWindow());
+    }
+
+    function showError(msg) {
+      const e = document.getElementById("error");
+      e.textContent = msg;
+      e.style.display = "block";
+    }
+  </script>
+</body>
+</html>
