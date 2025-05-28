@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR 受領</title>
+  <!-- WOFF SDK -->
+  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    #error { color: red; display: none; margin-bottom: 20px; }
+    #app { display: none; }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    #result {
+      margin-top: 20px;
+      font-size: 18px;
+      color: #333;
+    }
+    #detailLink {
+      display: none;
+      margin-top: 10px;
+      font-size: 16px;
+    }
+    #submit {
+      display: none;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>QR 受領</h1>
+
+  <div id="error"></div>
+
+  <div id="app">
+    <p>
+      受領者: <strong><span id="receiverName"></span></strong>
+      （ID: <span id="receiverId"></span>）
+    </p>
+
+    <button id="scan">QR コードをスキャン</button>
+
+    <div id="result"></div>
+
+    <button id="submit">受領</button>
+    <br>
+    <a id="detailLink" href="#" target="_blank">納品明細を見る</a>
+  </div>
+
+  <script>
+    function base64ToUtf8(str) {
+      return decodeURIComponent(escape(atob(str)));
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      if (!woff.isInClient()) {
+        const e = document.getElementById("error");
+        e.textContent = "LINE WORKSアプリ内で開いてください。";
+        e.style.display = "block";
+        return;
+      }
+
+      woff.init({ woffId: "<YOUR_WOFF_ID>" })
+        .then(() => woff.getProfile())
+        .then(profile => {
+          document.getElementById("receiverName").textContent = profile.displayName;
+          document.getElementById("receiverId").textContent   = profile.userId;
+          document.getElementById("app").style.display = "block";
+
+          setupScan(profile);
+        })
+        .catch(err => {
+          const e = document.getElementById("error");
+          e.textContent = "初期化エラー: " + err.message;
+          e.style.display = "block";
+        });
+    });
+
+    function setupScan(profile) {
+      const scanBtn    = document.getElementById("scan");
+      const resultEl   = document.getElementById("result");
+      const submitBtn  = document.getElementById("submit");
+      const detailLink = document.getElementById("detailLink");
+      let scanResult   = null;
+
+      scanBtn.addEventListener("click", async () => {
+        scanBtn.disabled = true;
+        scanBtn.textContent = "スキャン中...";
+        resultEl.textContent = "";
+        detailLink.style.display = "none";
+        submitBtn.style.display = "none";
+
+        try {
+          const scanData = await woff.scanQR();
+          const decoded  = base64ToUtf8(scanData.value);
+          const payload  = JSON.parse(decoded);
+
+          if (Date.now() > payload.expiry) {
+            resultEl.textContent = "期限切れの QR コードです。";
+            return;
+          }
+
+          scanResult = {
+            納品ID:       payload.deliveryId,
+            納品先:       payload.client,
+            配送担当者:   payload.deliveryPerson.name,
+            配送担当者ID: payload.deliveryPerson.userId,
+            受領時刻:     new Date().toISOString(),
+            受領者:       profile.displayName,
+            受領者ID:     profile.userId
+          };
+
+          resultEl.innerHTML = 
+            `納品ID: ${payload.deliveryId}<br>` +
+            `納品先: ${payload.client}<br>` +
+            `配送担当者: ${payload.deliveryPerson.name}`;
+
+          const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+          detailLink.href = 
+            `delivery-details.html?data=${encodeURIComponent(encoded)}`;
+          detailLink.style.display = "inline-block";
+
+          submitBtn.style.display = "inline-block";
+        } catch (err) {
+          console.error(err);
+          resultEl.textContent = "無効な QR コードです。";
+        } finally {
+          scanBtn.disabled = false;
+          scanBtn.textContent = "QR コードをスキャン";
+        }
+      });
+
+      submitBtn.addEventListener("click", async () => {
+        if (!scanResult) return;
+        submitBtn.disabled = true;
+        try {
+          const res = await fetch("<YOUR_CALLBACK_URL>", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(scanResult)
+          });
+          if (res.ok) {
+            alert("受領処理が完了しました！");
+          } else {
+            alert("送信中にエラーが発生しました。");
+            console.error(await res.text());
+          }
+        } catch (err) {
+          console.error(err);
+          alert("送信中にエラーが発生しました。");
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    }
+  </script>
+</body>
+</html>

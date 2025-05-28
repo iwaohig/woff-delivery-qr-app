@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>納品書 作成</title>
+  <!-- WOFF SDK -->
+  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
+  <!-- QRCode.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #formArea { display: none; }
+    #error { color: red; display: none; }
+    label, table, button { margin-top: 10px; display: block; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 8px; }
+  </style>
+</head>
+<body>
+  <h1>納品書 作成</h1>
+  <div id="error"></div>
+
+  <div id="formArea">
+    <p>
+      作成者: <span id="creatorName"></span>（ID: <span id="creatorId"></span>）
+    </p>
+    <label>
+      納品ID:
+      <input type="text" id="deliveryId" readonly>
+    </label>
+    <label>
+      納品先:
+      <select id="clientSelect">
+        <option>ワークス中央病院</option>
+        <option>東京医科大学病院</option>
+        <option>慶應義塾病院</option>
+      </select>
+    </label>
+    <label>
+      納品日:
+      <input type="date" id="deliveryDate">
+    </label>
+
+    <h2>明細</h2>
+    <table id="itemsTable">
+      <thead>
+        <tr><th>品名</th><th>数量</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <button id="addItem">行を追加</button>
+    <button id="generateQr">QR生成</button>
+
+    <div id="qrcode"></div>
+    <p>
+      詳細ページリンク：<br>
+      <a id="detailLink" href="#" target="_blank"></a>
+    </p>
+  </div>
+
+  <script>
+    // UTF-8 → Base64
+    function utf8ToBase64(str) {
+      return btoa(unescape(encodeURIComponent(str)));
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      // WOFF 実行環境かチェック
+      if (!woff.isInClient()) {
+        document.getElementById("error").textContent = "LINE WORKSアプリ内で開いてください。";
+        document.getElementById("error").style.display = "block";
+        return;
+      }
+
+      // SDK 初期化 → プロフィール取得
+      woff.init({ woffId: "<YOUR_WOFF_ID>" })
+        .then(() => woff.getProfile())
+        .then(profile => {
+          // 作成者情報を表示
+          document.getElementById("creatorName").textContent = profile.displayName;
+          document.getElementById("creatorId").textContent   = profile.userId;
+
+          // フォーム表示＆初期化
+          document.getElementById("formArea").style.display = "block";
+          initForm();
+        })
+        .catch(err => {
+          document.getElementById("error").textContent = "初期化エラー: " + err.message;
+          document.getElementById("error").style.display = "block";
+        });
+    });
+
+    function initForm() {
+      const medicalItems = [
+        "アセトアミノフェン錠 200mg",
+        "クラリスロマイシン錠 200mg",
+        "ソルラクト輸液 500ml",
+        "ヒューマログ注 3mL",
+        "ラシックス錠 20mg",
+        "オルメサルタン錠 20mg",
+        "プレドニゾロン錠 5mg",
+        "カロナール錠 300mg"
+      ];
+      const tbody = document.querySelector("#itemsTable tbody");
+
+      // 行追加
+      document.getElementById("addItem").addEventListener("click", () => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>
+            <select class="itemName">
+              ${medicalItems.map(n=>`<option>${n}</option>`).join("")}
+            </select>
+          </td>
+          <td>
+            <select class="itemQty">
+              ${[...Array(50)].map((_,i)=>`<option>${i+1}</option>`).join("")}
+            </select>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+
+      // 納品ID・日付の初期設定
+      (()=>{
+        const now = new Date();
+        const y = now.getFullYear(), m = String(now.getMonth()+1).padStart(2,"0"),
+              d = String(now.getDate()).padStart(2,"0");
+        document.getElementById("deliveryId").value = `DLV${y}${m}${d}-${Math.floor(Math.random()*90000+10000)}`;
+        document.getElementById("deliveryDate").value = `${y}-${m}-${d}`;
+        document.getElementById("addItem").click();
+      })();
+
+      // QR生成
+      document.getElementById("generateQr").addEventListener("click", () => {
+        const payload = {
+          deliveryId: document.getElementById("deliveryId").value,
+          client:     document.getElementById("clientSelect").value,
+          date:       document.getElementById("deliveryDate").value,
+          creator: {
+            userId:   document.getElementById("creatorId").textContent,
+            name:     document.getElementById("creatorName").textContent
+          },
+          items: Array.from(tbody.querySelectorAll("tr")).map(tr=>({
+            name: tr.querySelector(".itemName").value,
+            qty:  tr.querySelector(".itemQty").value
+          }))
+        };
+
+        const encoded = utf8ToBase64(JSON.stringify(payload));
+        const link = `${location.origin}/delivery-details.html?data=${encodeURIComponent(encoded)}`;
+
+        document.getElementById("qrcode").innerHTML = "";
+        new QRCode(document.getElementById("qrcode"), {
+          text: link, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.H
+        });
+
+        const a = document.getElementById("detailLink");
+        a.href = link;
+        a.textContent = link;
+      });
+    }
+  </script>
+</body>
+</html>
