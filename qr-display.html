@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>納品 QR 表示</title>
+  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.6.2/sdk.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    body {
+      font-family: 'Roboto', Arial, sans-serif;
+      background-color: #f4f4f9;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 1.6rem;
+      text-align: center;
+    }
+    .item-row {
+      margin-bottom: 10px;
+      display: flex;
+      gap: 10px;
+    }
+    select, input[type="number"] {
+      padding: 8px;
+      font-size: 1rem;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 1rem;
+      margin-top: 10px;
+    }
+    #qrcode {
+      margin-top: 20px;
+      text-align: center;
+    }
+    #card {
+      text-align: center;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>納品 QR 表示</h1>
+
+  <div id="formContainer"></div>
+  <button id="addItemBtn">明細追加</button>
+  <button id="generateBtn">入力完了</button>
+
+  <div id="card" class="hidden">
+    <p>名前: <span id="name">-</span></p>
+    <p>ID: <span id="userId">-</span></p>
+    <div id="qrcode"></div>
+    <p id="countdown">QRコードの有効期限: 残り <span id="timeRemaining">--:--</span></p>
+  </div>
+
+  <script>
+    const medicalItems = [
+      { name: "アセトアミノフェン錠 200mg", unit: "錠" },
+      { name: "クラリスロマイシン錠 200mg", unit: "錠" },
+      { name: "ソルラクト輸液 500ml", unit: "本" },
+      { name: "ヒューマログ注 3mL", unit: "本" },
+      { name: "ラシックス錠 20mg", unit: "錠" },
+      { name: "オルメサルタン錠 20mg", unit: "錠" },
+      { name: "プレドニゾロン錠 5mg", unit: "錠" },
+      { name: "カロナール錠 300mg", unit: "錠" }
+    ];
+
+    function utf8ToBase64(str) {
+      return btoa(unescape(encodeURIComponent(str)));
+    }
+
+    function startCountdown(expiryTimestamp) {
+      const countdownElement = document.getElementById("timeRemaining");
+      const interval = setInterval(() => {
+        const timeLeft = expiryTimestamp - Date.now();
+        if (timeLeft <= 0) {
+          clearInterval(interval);
+          countdownElement.textContent = "期限切れ";
+        } else {
+          const min = Math.floor(timeLeft / 60000);
+          const sec = Math.floor((timeLeft % 60000) / 1000);
+          countdownElement.textContent = `${min}:${sec.toString().padStart(2, "0")}`;
+        }
+      }, 1000);
+    }
+
+    function createItemRow() {
+      const div = document.createElement("div");
+      div.className = "item-row";
+
+      const select = document.createElement("select");
+      for (const item of medicalItems) {
+        const option = document.createElement("option");
+        option.value = item.name;
+        option.textContent = item.name;
+        select.appendChild(option);
+      }
+
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = 1;
+      input.placeholder = "数量";
+
+      div.appendChild(select);
+      div.appendChild(input);
+
+      document.getElementById("formContainer").appendChild(div);
+    }
+
+    document.getElementById("addItemBtn").addEventListener("click", createItemRow);
+
+    document.getElementById("generateBtn").addEventListener("click", () => {
+      const rows = document.querySelectorAll(".item-row");
+      const items = [];
+
+      for (const row of rows) {
+        const name = row.querySelector("select").value;
+        const quantity = parseInt(row.querySelector("input").value, 10);
+        if (!name || !quantity || quantity <= 0) {
+          alert("品名と数量を正しく入力してください。");
+          return;
+        }
+        items.push({ name, quantity });
+      }
+
+      if (items.length === 0) {
+        alert("明細がありません。");
+        return;
+      }
+
+      const expiryTimestamp = Date.now() + 5 * 60 * 1000;
+
+      woff.init({ woffId: "aQQ-OWCExufbfTtzIha75A" })
+        .then(() => woff.getProfile())
+        .then(profile => {
+          document.getElementById("name").textContent = profile.displayName || "N/A";
+          document.getElementById("userId").textContent = profile.userId || "N/A";
+
+          const payload = {
+            deliveryId: "DLV20250408-99999",
+            client: "ワークス中央病院",
+            deliveryPerson: {
+              name: profile.displayName,
+              userId: profile.userId
+            },
+            timestamp: Date.now(),
+            expiry: expiryTimestamp,
+            items
+          };
+
+          const qrData = utf8ToBase64(JSON.stringify(payload));
+
+          document.getElementById("card").classList.remove("hidden");
+          document.getElementById("qrcode").innerHTML = ""; // clear old
+          new QRCode(document.getElementById("qrcode"), {
+            text: qrData,
+            width: 240,
+            height: 240,
+            correctLevel: QRCode.CorrectLevel.H
+          });
+
+          startCountdown(expiryTimestamp);
+        })
+        .catch(err => {
+          alert("初期化またはQR生成エラー");
+          console.error(err);
+        });
+    });
+
+    // 初期 1 行追加
+    createItemRow();
+  </script>
+</body>
+</html>
