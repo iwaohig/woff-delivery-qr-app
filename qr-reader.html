@@ -4,19 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>QR 受領</title>
-  <!-- WOFF SDK -->
-  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.7.1/sdk.js"></script>
+  <script charset="utf-8" src="https://static.worksmobile.net/static/wm/woff/edge/3.6.2/sdk.js"></script>
   <style>
     body {
-      font-family: sans-serif;
-      padding: 20px;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 20px;
     }
-    #error { color: red; display: none; margin-bottom: 20px; }
-    #app { display: none; }
     button {
       padding: 10px 20px;
       font-size: 16px;
-      margin-top: 10px;
+      margin-top: 20px;
       cursor: pointer;
     }
     #result {
@@ -26,141 +24,165 @@
     }
     #detailLink {
       display: none;
-      margin-top: 10px;
+      margin-top: 20px;
       font-size: 16px;
     }
-    #submit {
-      display: none;
-      margin-top: 10px;
+    #errorMessage {
+      color: red;
+      margin-top: 20px;
+    }
+    table {
+      margin: 10px auto;
+      border-collapse: collapse;
+      width: 80%;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+    }
+    th {
+      background-color: #f0f0f0;
     }
   </style>
 </head>
 <body>
-  <h1>QR 受領</h1>
-
-  <div id="error"></div>
-
-  <div id="app">
-    <p>
-      受領者: <strong><span id="receiverName"></span></strong>
-      （ID: <span id="receiverId"></span>）
-    </p>
-
-    <button id="scan">QR コードをスキャン</button>
-
-    <div id="result"></div>
-
-    <button id="submit">受領</button>
-    <br>
-    <a id="detailLink" href="#" target="_blank">納品明細を見る</a>
-  </div>
+  <button id="scan">QR コードをスキャン</button>
+  <div id="result"></div>
+  <div id="itemTableContainer"></div> <!-- 🔧 明細表示エリア -->
+  <button id="submit" style="display:none;">受領</button>
+  <a id="detailLink" href="#" target="_blank">納品明細を見る</a>
+  <div id="errorMessage" style="display:none;"></div>
 
   <script>
+    const messages = {
+      scanning: "スキャン中...",
+      scanQr: "QR コードをスキャン",
+      expired: "期限切れの QR コードです。",
+      invalid: "無効な QR コードです。",
+      scanError: "QR コードのスキャン中にエラーが発生しました。",
+      initError: "アプリの初期化に失敗しました。",
+      sendSuccess: "受領処理が完了しました！",
+      sendError: "送信中にエラーが発生しました。"
+    };
+
+    const callbackUrl = "https://prod-02.japaneast.logic.azure.com:443/workflows/b48ed1bad1d6474088765a5d0d477394/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=qkgwdvs50zSOAkBgYxh-pgbmju4XMIei3Q4HG-W6yNE";
+
     function base64ToUtf8(str) {
       return decodeURIComponent(escape(atob(str)));
     }
 
-    document.addEventListener("DOMContentLoaded", () => {
-      if (!woff.isInClient()) {
-        const e = document.getElementById("error");
-        e.textContent = "LINE WORKSアプリ内で開いてください。";
-        e.style.display = "block";
-        return;
-      }
+    function renderItemTable(items) {
+      if (!items || !Array.isArray(items)) return;
 
-      woff.init({ woffId: "<YOUR_WOFF_ID>" })
+      const container = document.getElementById("itemTableContainer");
+      container.innerHTML = "";
+
+      const table = document.createElement("table");
+      const thead = document.createElement("thead");
+      thead.innerHTML = "<tr><th>品名</th><th>数量</th></tr>";
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      items.forEach(item => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${item.name}</td><td>${item.quantity}</td>`;
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      woff.init({ woffId: "Hp4iQhlQODS_2rJvGOP4rQ" })
         .then(() => woff.getProfile())
         .then(profile => {
-          document.getElementById("receiverName").textContent = profile.displayName;
-          document.getElementById("receiverId").textContent   = profile.userId;
-          document.getElementById("app").style.display = "block";
+          let scanResult = null;
+          const scanButton = document.getElementById("scan");
+          const submitButton = document.getElementById("submit");
+          const resultEl = document.getElementById("result");
+          const detailLink = document.getElementById("detailLink");
+          const errorMessage = document.getElementById("errorMessage");
 
-          setupScan(profile);
+          const receiverName = profile.displayName;
+          const receiverId = profile.userId;
+
+          scanButton.addEventListener("click", async () => {
+            scanButton.disabled = true;
+            scanButton.textContent = messages.scanning;
+
+            resultEl.textContent = "";
+            detailLink.style.display = "none";
+            submitButton.style.display = "none";
+            errorMessage.style.display = "none";
+            document.getElementById("itemTableContainer").innerHTML = "";
+
+            try {
+              const scanData = await woff.scanQR();
+              const decoded = base64ToUtf8(scanData.value);
+              const payload = JSON.parse(decoded);
+
+              if (Date.now() > payload.expiry) {
+                resultEl.textContent = messages.expired;
+                return;
+              }
+
+              scanResult = {
+                "納品ID": payload.deliveryId,
+                "納品先": payload.client,
+                "配送担当者": payload.deliveryPerson.name,
+                "配送担当者ID": payload.deliveryPerson.userId,
+                "受領時刻": new Date().toISOString(),
+                "受領者": receiverName,
+                "受領者ID": receiverId,
+                "明細": payload.items || []
+              };
+
+              resultEl.innerHTML = `納品ID: ${payload.deliveryId}<br>納品先: ${payload.client}<br>配送担当者: ${scanResult["配送担当者"]}`;
+              renderItemTable(payload.items); // 🔧 明細表示
+
+              detailLink.href = `delivery-details.html?deliveryId=${encodeURIComponent(payload.deliveryId)}`;
+              detailLink.style.display = "inline-block";
+              submitButton.style.display = "inline-block";
+              submitButton.disabled = false;
+
+            } catch (e) {
+              console.error(e);
+              errorMessage.textContent = messages.invalid;
+              errorMessage.style.display = "block";
+            } finally {
+              scanButton.disabled = false;
+              scanButton.textContent = messages.scanQr;
+            }
+          });
+
+          submitButton.addEventListener("click", async () => {
+            if (!scanResult) return;
+            submitButton.disabled = true;
+            try {
+              const response = await fetch(callbackUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(scanResult)
+              });
+              if (response.ok) {
+                alert(messages.sendSuccess);
+              } else {
+                alert(messages.sendError);
+                console.error(await response.text());
+              }
+            } catch (e) {
+              alert(messages.sendError);
+              console.error(e);
+            }
+          });
         })
-        .catch(err => {
-          const e = document.getElementById("error");
-          e.textContent = "初期化エラー: " + err.message;
-          e.style.display = "block";
+        .catch(error => {
+          console.error("初期化エラー:", error);
+          document.getElementById("errorMessage").textContent = "アプリの初期化に失敗しました。エラー詳細: " + error.message;
+          document.getElementById("errorMessage").style.display = "block";
         });
     });
-
-    function setupScan(profile) {
-      const scanBtn    = document.getElementById("scan");
-      const resultEl   = document.getElementById("result");
-      const submitBtn  = document.getElementById("submit");
-      const detailLink = document.getElementById("detailLink");
-      let scanResult   = null;
-
-      scanBtn.addEventListener("click", async () => {
-        scanBtn.disabled = true;
-        scanBtn.textContent = "スキャン中...";
-        resultEl.textContent = "";
-        detailLink.style.display = "none";
-        submitBtn.style.display = "none";
-
-        try {
-          const scanData = await woff.scanQR();
-          const decoded  = base64ToUtf8(scanData.value);
-          const payload  = JSON.parse(decoded);
-
-          if (Date.now() > payload.expiry) {
-            resultEl.textContent = "期限切れの QR コードです。";
-            return;
-          }
-
-          scanResult = {
-            納品ID:       payload.deliveryId,
-            納品先:       payload.client,
-            配送担当者:   payload.deliveryPerson.name,
-            配送担当者ID: payload.deliveryPerson.userId,
-            受領時刻:     new Date().toISOString(),
-            受領者:       profile.displayName,
-            受領者ID:     profile.userId
-          };
-
-          resultEl.innerHTML = 
-            `納品ID: ${payload.deliveryId}<br>` +
-            `納品先: ${payload.client}<br>` +
-            `配送担当者: ${payload.deliveryPerson.name}`;
-
-          const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-          detailLink.href = 
-            `delivery-details.html?data=${encodeURIComponent(encoded)}`;
-          detailLink.style.display = "inline-block";
-
-          submitBtn.style.display = "inline-block";
-        } catch (err) {
-          console.error(err);
-          resultEl.textContent = "無効な QR コードです。";
-        } finally {
-          scanBtn.disabled = false;
-          scanBtn.textContent = "QR コードをスキャン";
-        }
-      });
-
-      submitBtn.addEventListener("click", async () => {
-        if (!scanResult) return;
-        submitBtn.disabled = true;
-        try {
-          const res = await fetch("<YOUR_CALLBACK_URL>", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(scanResult)
-          });
-          if (res.ok) {
-            alert("受領処理が完了しました！");
-          } else {
-            alert("送信中にエラーが発生しました。");
-            console.error(await res.text());
-          }
-        } catch (err) {
-          console.error(err);
-          alert("送信中にエラーが発生しました。");
-        } finally {
-          submitBtn.disabled = false;
-        }
-      });
-    }
   </script>
 </body>
 </html>
