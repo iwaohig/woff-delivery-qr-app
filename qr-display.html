@@ -21,10 +21,15 @@
       display: flex;
       gap: 10px;
     }
-    select, input[type="number"] {
-      padding: 8px;
-      font-size: 1rem;
-    }
+select, input[type="number"] {
+  padding: 8px;
+  font-size: 1rem;
+}
+
+input[type="number"] {
+  width: 5em; /* ← 数字3桁+余白にちょうどよい幅 */
+}
+
     button {
       padding: 10px 20px;
       font-size: 1rem;
